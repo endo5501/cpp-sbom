@@ -58,6 +58,10 @@ D:\Programs\cpp-sbom\
 └── README.md                   # 設計判断と使い方のドキュメント
 ```
 
+検証済みの補足: Qt6::Widgets / Xml / Network は qtbase の SBOM 内、Qt6::Core5Compat は **qt5compat という別ドキュメント**
+(`SPDXRef-Package-qt5compat-qt-module-Core5Compat-a70892343e15`)にあり、複数 Qt SBOM への参照解決が本構成でカバーされる。
+service は Qt 非依存の生成パスを検証する。
+
 ツールチェーン(確認済み): VS2022 Community `vcvars64.bat` / CMake 3.30.5 (`C:\Qt\Tools\CMake_64`) / ninja 1.13.2 / Python 3.13。
 
 ## SBOM 生成の設計
@@ -79,16 +83,22 @@ D:\Programs\cpp-sbom\
    - Qt モジュールへ `DYNAMIC_LINK`(ExternalDocumentRef 経由)
    - SQLite へ `STATIC_LINK`(埋め込み Package)
    - 受領 SBOM のルートパッケージへ `DYNAMIC_LINK`(ExternalDocumentRef 経由、受領 SBOM の DESCRIBES から SPDXID を自動取得)
-   - リポジトリ間(app → corelib)も `ExternalDocumentRef` で相互参照(依存順に生成し SHA1 を確定)
-3. 製品トップレベル SBOM: 組み合わせ(app + corelib + Qt + vendorlib)全体を 1 つの薄いドキュメントで束ねる(Yocto と同じパターン)。
+   - リポジトリ間(app1 → corelib / gui1lib 等)も `ExternalDocumentRef` で相互参照(依存順に生成し SHA1 を確定)
+3. 製品トップレベル SBOM: 「用途による組み合わせ」を反映し、**組み合わせ単位で複数生成**する。
+   - `product-app1` = app1 + corelib + gui1lib + vendorlib + Qt
+   - `product-app2` = app2 + corelib + gui2lib + vendorlib + Qt
+   - `product-service` = service 単体
+   各製品ドキュメントは構成リポジトリの SBOM を `ExternalDocumentRef` で束ねる薄いドキュメント(Yocto と同じパターン)。
 
 ### Relation の形(生成物のイメージ)
 
 ```
 ExternalDocumentRef: DocumentRef-qtbase <qtbaseの名前空間> SHA1: <qtbase-6.11.1.spdxのSHA1>
-Relationship: SPDXRef-Package-app DYNAMIC_LINK DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core-14f2e7e421b1
+Relationship: SPDXRef-Package-app1 DYNAMIC_LINK DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core-14f2e7e421b1
 Relationship: SPDXRef-Package-corelib STATIC_LINK SPDXRef-Package-SQLite
-Relationship: SPDXRef-Package-app DYNAMIC_LINK DocumentRef-vendorlib:SPDXRef-Package-vendorlib
+Relationship: SPDXRef-Package-app1 DYNAMIC_LINK DocumentRef-corelib:SPDXRef-Package-corelib
+Relationship: SPDXRef-Package-app1 DYNAMIC_LINK DocumentRef-vendorlib:SPDXRef-Package-vendorlib
+Relationship: SPDXRef-Package-gui2lib DYNAMIC_LINK DocumentRef-qt5compat:SPDXRef-Package-qt5compat-qt-module-Core5Compat-a70892343e15
 ```
 
 ## 実行ステップ(TDD、CLAUDE.md の開発方針に従う)
