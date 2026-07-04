@@ -1,0 +1,34 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "vendorlib-1.2.3",
+  "documentNamespace": "https://vendor.example.org/spdxdocs/vendorlib-1.2.3-11111111-2222-3333-4444-555555555555",
+  "creationInfo": {
+    "created": "2026-06-01T00:00:00Z",
+    "creators": [
+      "Organization: Vendor Example Org",
+      "Tool: vendor-sbom-generator-1.0"
+    ]
+  },
+  "packages": [
+    {
+      "name": "vendorlib",
+      "SPDXID": "SPDXRef-Package-vendorlib",
+      "versionInfo": "1.2.3",
+      "supplier": "Organization: Vendor Example Org",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LicenseRef-Vendor-Proprietary",
+      "licenseDeclared": "LicenseRef-Vendor-Proprietary",
+      "copyrightText": "Copyright (c) 2026 Vendor Example Org"
+    }
+  ],
+  "hasExtractedLicensingInfos": [
+    {
+      "licenseId": "LicenseRef-Vendor-Proprietary",
+      "extractedText": "Proprietary license of Vendor Example Org. Redistribution prohibited."
+    }
+  ],
+  "documentDescribes": ["SPDXRef-Package-vendorlib"]
+}

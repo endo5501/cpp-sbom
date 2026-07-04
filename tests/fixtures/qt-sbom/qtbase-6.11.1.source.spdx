@@ -1,0 +1,11 @@
+SPDXVersion: SPDX-2.1
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: qtbase
+DocumentNamespace: http://spdx.org/spdxdocs/spdx-v2.1-must-not-be-used-00000000-0000-0000-0000-00000000dead
+Creator: Organization: TheQtCompany
+Created: 2026-01-01T00:00:00Z
+
+PackageName: Core
+SPDXID: SPDXRef-deadbeef-source-must-not-match
+PackageDownloadLocation: NOASSERTION

@@ -1,0 +1,40 @@
+SPDXVersion: SPDX-2.3
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: qtbase-6.11.1
+DocumentNamespace: https://qt.io/spdxdocs/qtbase-fixture-host-windows-amd64-target-windows-msvc-amd64-00000000-0000-0000-0000-000000000001
+Creator: Organization: TheQtCompany
+Creator: Tool: Qt Build System
+Created: 2026-01-01T00:00:00Z
+
+PackageName: qtbase
+SPDXID: SPDXRef-Package-qtbase-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: NOASSERTION
+
+PackageName: Core_Attribution_pcre2
+SPDXID: SPDXRef-Package-qtbase-qt-3rdparty-sources-Core-Attribution-pcre2-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: BSD-3-Clause
+
+PackageName: Core
+SPDXID: SPDXRef-Package-qtbase-qt-module-Core-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only
+
+PackageName: Widgets
+SPDXID: SPDXRef-Package-qtbase-qt-module-Widgets-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only
+
+PackageName: Xml
+SPDXID: SPDXRef-Package-qtbase-qt-module-Xml-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only
+
+PackageName: Network
+SPDXID: SPDXRef-Package-qtbase-qt-module-Network-abc123def456
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only
+
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-qtbase-abc123def456

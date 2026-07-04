@@ -1,0 +1,21 @@
+SPDXVersion: SPDX-2.3
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: qt5compat-6.11.1
+DocumentNamespace: https://qt.io/spdxdocs/qt5compat-fixture-host-windows-amd64-target-windows-msvc-amd64-00000000-0000-0000-0000-000000000002
+Creator: Organization: TheQtCompany
+Creator: Tool: Qt Build System
+Created: 2026-01-01T00:00:00Z
+ExternalDocumentRef: DocumentRef-qtbase https://qt.io/spdxdocs/qtbase-fixture-host-windows-amd64-target-windows-msvc-amd64-00000000-0000-0000-0000-000000000001 SHA1: 0000000000000000000000000000000000000000
+
+PackageName: qt5compat
+SPDXID: SPDXRef-Package-qt5compat-fedcba987654
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: NOASSERTION
+
+PackageName: Core5Compat
+SPDXID: SPDXRef-Package-qt5compat-qt-module-Core5Compat-fedcba987654
+PackageDownloadLocation: NOASSERTION
+PackageLicenseConcluded: LicenseRef-Qt-Commercial OR LGPL-3.0-only
+
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-qt5compat-fedcba987654
