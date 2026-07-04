@@ -53,7 +53,11 @@ add_library(corelib SHARED src/corelib.cpp)
 target_link_libraries(corelib PUBLIC Qt6::Core PRIVATE sqlite)
 
 if(COMMAND sbom_add_target)   # SBOM 環境なしでも単独ビルド可能
-    sbom_add_target(corelib)
+    sbom_add_target(corelib
+        LICENSE_DECLARED  "LicenseRef-MyCompany-Proprietary"   # 省略時 NOASSERTION
+        LICENSE_CONCLUDED "LicenseRef-MyCompany-Proprietary"
+        COPYRIGHT         "Copyright (c) 2026 Example Corp"
+    )
 endif()
 ```
 
@@ -65,6 +69,15 @@ endif()
 
 ```cmake
 include(Sbom)
+
+# 独自 (プロプライエタリ) ライセンス定義 — 参照する SBOM ドキュメントに
+# hasExtractedLicensingInfos として本文ごと埋め込まれる (TEXT_FILE も可)
+sbom_define_license(
+    ID   LicenseRef-MyCompany-Proprietary
+    NAME "Example Corp Proprietary License"
+    TEXT "Proprietary software of Example Corp.\n..."
+)
+
 add_subdirectory(...)
 sbom_add_product(NAME product-app1 VERSION 1.0.0 ROOT_TARGETS app1)
 sbom_finalize(SUPPLIER "Organization: Example Corp" SUPPLIER_URL "https://sbom.example.com")
