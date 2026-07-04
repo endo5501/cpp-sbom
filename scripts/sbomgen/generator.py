@@ -100,6 +100,10 @@ class _DocBuilder:
         self.relationships: list[dict] = []
         self._relationship_keys: set[tuple] = set()
         self.external_refs: dict[str, dict] = {}
+        self.extracted_licenses: dict[str, dict] = {}
+
+    def add_extracted_license(self, definition: dict) -> None:
+        self.extracted_licenses.setdefault(definition["licenseId"], definition)
 
     def add_package(self, package: dict) -> None:
         if package["SPDXID"] not in self._package_ids:
@@ -146,6 +150,10 @@ class _DocBuilder:
             doc["externalDocumentRefs"] = [
                 self.external_refs[k] for k in sorted(self.external_refs)
             ]
+        if self.extracted_licenses:
+            doc["hasExtractedLicensingInfos"] = [
+                self.extracted_licenses[k] for k in sorted(self.extracted_licenses)
+            ]
         return doc
 
     def write(self, path: Path) -> None:
@@ -163,6 +171,17 @@ class _Generator:
         self.namespace_base: str = manifest["namespace_base"].rstrip("/")
         self.build_id: str = str(manifest.get("build_id", "local"))
         self.creators = [self.supplier, f"Tool: {TOOL_NAME}-{TOOL_VERSION}"]
+
+        # 独自ライセンス定義 (LicenseRef-*) — 参照するドキュメントに埋め込む
+        self.license_defs: dict[str, dict] = {}
+        for lic in manifest.get("licenses", []):
+            definition = {
+                "licenseId": lic["id"],
+                "extractedText": lic.get("text", "NOASSERTION"),
+            }
+            if lic.get("name"):
+                definition["name"] = lic["name"]
+            self.license_defs[lic["id"]] = definition
 
         qt_dir = manifest.get("qt_sbom_dir")
         self.qt_index = (
@@ -263,9 +282,9 @@ class _Generator:
             "supplier": self.supplier,
             "downloadLocation": "NOASSERTION",
             "filesAnalyzed": False,
-            "licenseConcluded": "NOASSERTION",
-            "licenseDeclared": target.get("license", "NOASSERTION"),
-            "copyrightText": "NOASSERTION",
+            "licenseConcluded": target.get("license_concluded", "NOASSERTION"),
+            "licenseDeclared": target.get("license_declared", "NOASSERTION"),
+            "copyrightText": target.get("copyright", "NOASSERTION"),
             "packageFileName": file.name,
             "checksums": [
                 {"algorithm": "SHA1", "checksumValue": _sha1(file)},
@@ -338,6 +357,19 @@ class _Generator:
                     f"{doc_ref}:{_package_id(lt['name'])}",
                 )
 
+    def _embed_referenced_license_defs(self, doc: _DocBuilder) -> None:
+        """ドキュメント内のパッケージが参照する LicenseRef-* の定義を埋め込む
+        (SPDX 2.3 では LicenseRef を使うドキュメント内に定義が必要)"""
+        if not self.license_defs:
+            return
+        for pkg in doc.packages:
+            for field in ("licenseConcluded", "licenseDeclared"):
+                expr = pkg.get(field, "")
+                for ref in re.findall(r"LicenseRef-[A-Za-z0-9.\-]+", expr):
+                    definition = self.license_defs.get(ref)
+                    if definition:
+                        doc.add_extracted_license(definition)
+
     def _generate_repo_doc(self, repo: str) -> Path:
         targets = self.repo_targets[repo]
         version = targets[0].get("version", "0")
@@ -351,6 +383,7 @@ class _Generator:
             for link in target.get("links", []):
                 self._add_link(doc, pkg["SPDXID"], link, repo, visited_static=set())
 
+        self._embed_referenced_license_defs(doc)
         out_file = self.out_dir / f"{doc_name}.spdx.json"
         doc.write(out_file)
         self.generated[repo] = {
@@ -425,6 +458,7 @@ class _Generator:
                 product_pkg_id, "DEPENDS_ON", f"{r.doc_ref_id}:{r.root_package_id}"
             )
 
+        self._embed_referenced_license_defs(doc)
         out_file = self.out_dir / f"{doc_name}.spdx.json"
         doc.write(out_file)
         return out_file
