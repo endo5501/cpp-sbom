@@ -7,5 +7,9 @@ add_executable(service src/main.cpp)
 target_link_libraries(service PRIVATE sqlite)
 
 if(COMMAND sbom_add_target)
-    sbom_add_target(service)
+    sbom_add_target(service
+        LICENSE_DECLARED  "LicenseRef-MyCompany-Proprietary"
+        LICENSE_CONCLUDED "LicenseRef-MyCompany-Proprietary"
+        COPYRIGHT         "Copyright (c) 2026 Example Corp"
+    )
 endif()

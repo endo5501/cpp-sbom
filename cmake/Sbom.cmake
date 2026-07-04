@@ -1,13 +1,21 @@
 # Sbom.cmake — ビルド成果物 (EXE/DLL) の SPDX 2.3 SBOM 生成モジュール
 #
 # 使い方 (各リポジトリの CMakeLists.txt):
-#   sbom_add_target(<tgt>)             EXE/DLL を SBOM 対象として登録
+#   sbom_add_target(<tgt>
+#       [LICENSE_DECLARED <SPDX式>]    宣言ライセンス (LicenseRef-* 可)
+#       [LICENSE_CONCLUDED <SPDX式>]   結論ライセンス
+#       [COPYRIGHT <text>])            著作権表記
+#                                      EXE/DLL を SBOM 対象として登録
 #   sbom_describe_package(<tgt> ...)   静的リンクされる OSS のメタデータ宣言
 #   sbom_declare_external(<tgt> SPDX_DOCUMENT <path>)
 #                                      受領バイナリに受領 SBOM を紐付け
 #                                      (Config.cmake 側で SBOM_SPDX_DOCUMENT
 #                                       プロパティを設定してもよい)
 # 使い方 (トップレベル):
+#   sbom_define_license(ID LicenseRef-MyCompany-Proprietary
+#       [NAME <表示名>] TEXT <本文> | TEXT_FILE <パス>)
+#                                      独自ライセンス定義。参照するドキュメントに
+#                                      hasExtractedLicensingInfos として埋め込まれる
 #   sbom_add_product(NAME <n> VERSION <v> ROOT_TARGETS <tgts...>)
 #   sbom_finalize(SUPPLIER <org> SUPPLIER_URL <url> [OUTPUT_DIR <dir>]
 #                 [NAMESPACE_BASE <uri>] [QT_SBOM_DIR <dir>])
@@ -30,6 +38,18 @@ define_property(GLOBAL PROPERTY SBOM_PRODUCTS
     BRIEF_DOCS "Product definitions: name|version|root;targets")
 define_property(GLOBAL PROPERTY SBOM_EXTERNALS
     BRIEF_DOCS "Received-SBOM targets: name|spdx-document-path")
+define_property(GLOBAL PROPERTY SBOM_LICENSES
+    BRIEF_DOCS "Custom license definition ids (LicenseRef-*)")
+
+# JSON 文字列値のエスケープ (ライセンス本文の改行・引用符等)
+function(_sbom_json_escape out_var input)
+    string(REPLACE "\\" "\\\\" _escaped "${input}")
+    string(REPLACE "\"" "\\\"" _escaped "${_escaped}")
+    string(REPLACE "\t" "\\t" _escaped "${_escaped}")
+    string(REPLACE "\r" "" _escaped "${_escaped}")
+    string(REPLACE "\n" "\\n" _escaped "${_escaped}")
+    set(${out_var} "${_escaped}" PARENT_SCOPE)
+endfunction()
 
 # EXE/DLL を SBOM 対象として登録する。
 # リポジトリ名 = 呼び出し元の PROJECT_NAME、バージョン = PROJECT_VERSION。
@@ -37,9 +57,14 @@ define_property(GLOBAL PROPERTY SBOM_EXTERNALS
 # ため sbom_finalize からは見えないことがある — ここ (リンク元と同じスコープ)
 # で externals として収集する。
 function(sbom_add_target target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG
+        "" "LICENSE_DECLARED;LICENSE_CONCLUDED;COPYRIGHT" "")
     set_target_properties(${target} PROPERTIES
-        SBOM_REPO    "${PROJECT_NAME}"
-        SBOM_VERSION "${PROJECT_VERSION}"
+        SBOM_REPO               "${PROJECT_NAME}"
+        SBOM_VERSION            "${PROJECT_VERSION}"
+        SBOM_LICENSE_DECLARED   "${ARG_LICENSE_DECLARED}"
+        SBOM_LICENSE_CONCLUDED  "${ARG_LICENSE_CONCLUDED}"
+        SBOM_COPYRIGHT          "${ARG_COPYRIGHT}"
     )
     set_property(GLOBAL APPEND PROPERTY SBOM_TARGETS ${target})
 
@@ -87,6 +112,29 @@ function(sbom_declare_external target)
     endif()
     set_target_properties(${target} PROPERTIES
         SBOM_SPDX_DOCUMENT "${ARG_SPDX_DOCUMENT}")
+endfunction()
+
+# 独自ライセンス (LicenseRef-*) を定義する。プロプライエタリライセンス等、
+# SPDX License List に無いライセンスに使う。参照するドキュメントに
+# hasExtractedLicensingInfos として本文ごと埋め込まれる。
+function(sbom_define_license)
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "ID;NAME;TEXT;TEXT_FILE" "")
+    if(NOT ARG_ID)
+        message(FATAL_ERROR "sbom_define_license: ID is required")
+    endif()
+    if(NOT ARG_ID MATCHES "^LicenseRef-[A-Za-z0-9.\\-]+$")
+        message(FATAL_ERROR
+            "sbom_define_license: ID must match 'LicenseRef-[A-Za-z0-9.-]+' (got '${ARG_ID}')")
+    endif()
+    if(ARG_TEXT_FILE)
+        file(READ "${ARG_TEXT_FILE}" ARG_TEXT)
+    endif()
+    if(NOT ARG_TEXT)
+        message(FATAL_ERROR "sbom_define_license: TEXT or TEXT_FILE is required")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY SBOM_LICENSES "${ARG_ID}")
+    set_property(GLOBAL PROPERTY "SBOM_LICENSE_NAME_${ARG_ID}" "${ARG_NAME}")
+    set_property(GLOBAL PROPERTY "SBOM_LICENSE_TEXT_${ARG_ID}" "${ARG_TEXT}")
 endfunction()
 
 # 「用途による組み合わせ」= 製品を定義する。製品ごとに、構成リポジトリの
@@ -226,6 +274,27 @@ function(sbom_finalize)
                 "      \"links\": [${_links_json}]${_describe}\n"
                 "    },\n")
         else()
+            # ライセンス / 著作権 (指定時のみ出力。省略時は NOASSERTION になる)
+            set(_license_fields "")
+            get_target_property(_lic_declared  ${_tgt} SBOM_LICENSE_DECLARED)
+            get_target_property(_lic_concluded ${_tgt} SBOM_LICENSE_CONCLUDED)
+            get_target_property(_copyright     ${_tgt} SBOM_COPYRIGHT)
+            if(_lic_declared)
+                _sbom_json_escape(_value "${_lic_declared}")
+                string(APPEND _license_fields
+                    "      \"license_declared\": \"${_value}\",\n")
+            endif()
+            if(_lic_concluded)
+                _sbom_json_escape(_value "${_lic_concluded}")
+                string(APPEND _license_fields
+                    "      \"license_concluded\": \"${_value}\",\n")
+            endif()
+            if(_copyright)
+                _sbom_json_escape(_value "${_copyright}")
+                string(APPEND _license_fields
+                    "      \"copyright\": \"${_value}\",\n")
+            endif()
+
             # EXE / DLL: 出力ファイルは generate 段階のジェネレータ式で解決
             string(APPEND _target_entries
                 "    {\n"
@@ -233,11 +302,35 @@ function(sbom_finalize)
                 "      \"type\": \"${_type}\",\n"
                 "      \"repo\": \"${_repo}\",\n"
                 "      \"version\": \"${_version}\",\n"
+                "${_license_fields}"
                 "      \"file\": \"$<TARGET_FILE:${_tgt}>\",\n"
                 "      \"links\": [${_links_json}]\n"
                 "    },\n")
             list(APPEND _artifact_targets ${_tgt})
         endif()
+    endforeach()
+
+    # ---- licenses (独自ライセンス定義) ------------------------------------
+    set(_license_entries "")
+    get_property(_license_ids GLOBAL PROPERTY SBOM_LICENSES)
+    if(_license_ids)
+        list(REMOVE_DUPLICATES _license_ids)
+    endif()
+    foreach(_lic_id IN LISTS _license_ids)
+        get_property(_lic_name GLOBAL PROPERTY "SBOM_LICENSE_NAME_${_lic_id}")
+        get_property(_lic_text GLOBAL PROPERTY "SBOM_LICENSE_TEXT_${_lic_id}")
+        _sbom_json_escape(_lic_text "${_lic_text}")
+        string(APPEND _license_entries
+            "    {\n"
+            "      \"id\": \"${_lic_id}\",\n")
+        if(_lic_name)
+            _sbom_json_escape(_lic_name "${_lic_name}")
+            string(APPEND _license_entries
+                "      \"name\": \"${_lic_name}\",\n")
+        endif()
+        string(APPEND _license_entries
+            "      \"text\": \"${_lic_text}\"\n"
+            "    },\n")
     endforeach()
 
     # ---- products --------------------------------------------------------
@@ -259,6 +352,7 @@ function(sbom_finalize)
     string(REGEX REPLACE ",\n$" "\n" _target_entries "${_target_entries}")
     string(REGEX REPLACE ",\n$" "\n" _product_entries "${_product_entries}")
     string(REGEX REPLACE ",\n$" "\n" _external_entries "${_external_entries}")
+    string(REGEX REPLACE ",\n$" "\n" _license_entries "${_license_entries}")
 
     set(_manifest_content "")
     string(APPEND _manifest_content
@@ -268,6 +362,7 @@ function(sbom_finalize)
         "  \"supplier_url\": \"${ARG_SUPPLIER_URL}\",\n"
         "  \"namespace_base\": \"${ARG_NAMESPACE_BASE}\",\n"
         "  \"build_id\": \"${SBOM_BUILD_ID}\",\n"
+        "  \"licenses\": [\n${_license_entries}  ],\n"
         "  \"targets\": [\n${_target_entries}  ],\n"
         "  \"externals\": {\n${_external_entries}  },\n"
         "  \"products\": [\n${_product_entries}  ]\n"

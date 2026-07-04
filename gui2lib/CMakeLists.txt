@@ -18,5 +18,9 @@ target_link_libraries(gui2lib
 )
 
 if(COMMAND sbom_add_target)
-    sbom_add_target(gui2lib)
+    sbom_add_target(gui2lib
+        LICENSE_DECLARED  "LicenseRef-MyCompany-Proprietary"
+        LICENSE_CONCLUDED "LicenseRef-MyCompany-Proprietary"
+        COPYRIGHT         "Copyright (c) 2026 Example Corp"
+    )
 endif()

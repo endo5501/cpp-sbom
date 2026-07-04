@@ -16,5 +16,9 @@ target_link_libraries(app2 PRIVATE
 )
 
 if(COMMAND sbom_add_target)
-    sbom_add_target(app2)
+    sbom_add_target(app2
+        LICENSE_DECLARED  "LicenseRef-MyCompany-Proprietary"
+        LICENSE_CONCLUDED "LicenseRef-MyCompany-Proprietary"
+        COPYRIGHT         "Copyright (c) 2026 Example Corp"
+    )
 endif()

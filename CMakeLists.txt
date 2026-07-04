@@ -22,6 +22,14 @@ set(Vendorlib_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendorlib/cmake)
 # SBOM 生成モジュール
 include(Sbom)
 
+# 自社プロプライエタリライセンスの定義 (参照する SBOM ドキュメントに
+# hasExtractedLicensingInfos として埋め込まれる)
+sbom_define_license(
+    ID   LicenseRef-MyCompany-Proprietary
+    NAME "Example Corp Proprietary License"
+    TEXT "Proprietary software of Example Corp.\nAll rights reserved. Unauthorized reproduction or redistribution is prohibited."
+)
+
 add_subdirectory(sqlite)
 add_subdirectory(corelib)
 add_subdirectory(gui1lib)
