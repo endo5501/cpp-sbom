@@ -62,6 +62,9 @@ def manifest(tmp_path, qt_sbom_dir, vendor_sbom_file):
                 "version": "1.2.0",
                 "file": str(files["corelib"]),
                 "links": ["Qt6::Core", "sqlite"],
+                "license_declared": "LicenseRef-MyCompany-Proprietary",
+                "license_concluded": "LicenseRef-MyCompany-Proprietary",
+                "copyright": "Copyright (c) 2026 Example Corp",
             },
             {
                 "name": "gui1lib",
@@ -120,6 +123,16 @@ def manifest(tmp_path, qt_sbom_dir, vendor_sbom_file):
         "externals": {
             "Vendorlib::vendorlib": {"spdx_document": str(vendor_sbom_file)}
         },
+        "licenses": [
+            {
+                "id": "LicenseRef-MyCompany-Proprietary",
+                "name": "Example Corp Proprietary License",
+                "text": (
+                    "Proprietary software of Example Corp.\n"
+                    "All rights reserved. Redistribution prohibited."
+                ),
+            }
+        ],
         "products": [
             {"name": "product-app1", "version": "1.0.0", "root_targets": ["app1"]},
             {"name": "product-app2", "version": "1.0.0", "root_targets": ["app2"]},
@@ -356,6 +369,42 @@ class TestProductDocuments:
         doc = load_doc(generated, "product-service-1.0.0.spdx.json")
         refs = external_refs_of(doc)
         assert set(refs) == {"DocumentRef-service"}
+
+
+class TestLicenseAndCopyright:
+    def test_artifact_license_and_copyright_from_manifest(self, generated):
+        doc = load_doc(generated, "corelib-1.2.0.spdx.json")
+        pkg = package_by_id(doc, "SPDXRef-Package-corelib")
+        assert pkg["licenseDeclared"] == "LicenseRef-MyCompany-Proprietary"
+        assert pkg["licenseConcluded"] == "LicenseRef-MyCompany-Proprietary"
+        assert pkg["copyrightText"] == "Copyright (c) 2026 Example Corp"
+
+    def test_defaults_are_noassertion(self, generated):
+        doc = load_doc(generated, "gui1lib-2.0.1.spdx.json")
+        pkg = package_by_id(doc, "SPDXRef-Package-gui1lib")
+        assert pkg["licenseDeclared"] == "NOASSERTION"
+        assert pkg["licenseConcluded"] == "NOASSERTION"
+        assert pkg["copyrightText"] == "NOASSERTION"
+
+    def test_custom_license_definition_embedded_where_referenced(self, generated):
+        # LicenseRef- を使うドキュメントには hasExtractedLicensingInfos で
+        # 定義が埋め込まれる (SPDX 2.3 の要求)
+        doc = load_doc(generated, "corelib-1.2.0.spdx.json")
+        infos = {
+            i["licenseId"]: i for i in doc.get("hasExtractedLicensingInfos", [])
+        }
+        assert "LicenseRef-MyCompany-Proprietary" in infos
+        info = infos["LicenseRef-MyCompany-Proprietary"]
+        assert info["name"] == "Example Corp Proprietary License"
+        assert "Proprietary software of Example Corp." in info["extractedText"]
+
+    def test_custom_license_not_embedded_where_unreferenced(self, generated):
+        # LicenseRef-MyCompany-Proprietary を参照しないドキュメントには定義を入れない
+        doc = load_doc(generated, "gui1lib-2.0.1.spdx.json")
+        infos = doc.get("hasExtractedLicensingInfos", [])
+        assert all(
+            i["licenseId"] != "LicenseRef-MyCompany-Proprietary" for i in infos
+        )
 
 
 class TestNamespaceStability:
