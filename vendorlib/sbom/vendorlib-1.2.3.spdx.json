@@ -1,0 +1,45 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "vendorlib-1.2.3",
+  "documentNamespace": "https://vendor.example.org/spdxdocs/vendorlib-1.2.3-8c2b7d4e-5f1a-4b3c-9d8e-7a6f5e4d3c2b",
+  "creationInfo": {
+    "created": "2026-06-15T09:00:00Z",
+    "creators": [
+      "Organization: Vendor Example Org",
+      "Tool: vendor-sbom-generator-1.0"
+    ]
+  },
+  "packages": [
+    {
+      "name": "vendorlib",
+      "SPDXID": "SPDXRef-Package-vendorlib",
+      "versionInfo": "1.2.3",
+      "supplier": "Organization: Vendor Example Org",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LicenseRef-Vendor-Proprietary",
+      "licenseDeclared": "LicenseRef-Vendor-Proprietary",
+      "copyrightText": "Copyright (c) 2026 Vendor Example Org",
+      "packageFileName": "vendorlib.dll",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "dc85cf0c35118f4d6ba55913e0a96eed496ac37f"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "938baddfb6d59313945c966f0e5d0332456e1e1435b9f5c196dec4ae04ab4d3a"
+        }
+      ]
+    }
+  ],
+  "hasExtractedLicensingInfos": [
+    {
+      "licenseId": "LicenseRef-Vendor-Proprietary",
+      "extractedText": "Proprietary license of Vendor Example Org. Redistribution requires a commercial agreement."
+    }
+  ],
+  "documentDescribes": ["SPDXRef-Package-vendorlib"]
+}
