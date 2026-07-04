@@ -77,8 +77,11 @@ service は Qt 非依存の生成パスを検証する。
 
 ### Python 側 (`scripts/sbomgen/`)
 
-1. Qt の `sbom/*.spdx` をパースし「モジュール名 → (ドキュメント名前空間, パッケージ SPDXID, ファイル SHA1)」のマップを構築。`Qt6::Core` → `DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core-…` を自動解決(Qt の sbom ディレクトリは `Qt6_DIR` から導出)。
+1. Qt の `sbom/*.spdx` をパースし「モジュール名 → (ドキュメント名前空間, パッケージ SPDXID, ファイル SHA1)」のマップを構築。`Qt6::Core` → `DocumentRef-qtbase:SPDXRef-Package-qtbase-qt-module-Core-…` を自動解決(Qt の sbom ディレクトリは `Qt6_DIR` から導出、決め打ちせずフォールバック探索あり)。
+   - モジュール照合は **`PackageName:` を主キー**にする(SPDXID の `qt-module-<Name>` 命名規則は Qt 内部実装の産物でバージョン間で変わり得るため、パターン依存を最小化)。
+   - `ExternalDocumentRef` の SHA1 計算対象は**タグバリュー版 `.spdx` に固定**(`.spdx` と `.spdx.json` は別ドキュメント扱い。Qt 自身もタグバリュー版に対して計算している)。
 2. リポジトリ単位で SPDX 2.3 JSON ドキュメントを生成:
+   - 記録するのは**各ターゲットの直接依存のみ**(`LINK_LIBRARIES`)。PUBLIC リンクで伝播する推移的依存は、参照先 SBOM の Relation を連鎖的に辿ることで解決できるため重複記録しない。
    - EXE/DLL ごとに Package(SHA256/SHA1 チェックサム、supplier、licenseDeclared)+ `DOCUMENT DESCRIBES` 関係
    - Qt モジュールへ `DYNAMIC_LINK`(ExternalDocumentRef 経由)
    - SQLite へ `STATIC_LINK`(埋め込み Package)
@@ -104,7 +107,7 @@ Relationship: SPDXRef-Package-gui2lib DYNAMIC_LINK DocumentRef-qt5compat:SPDXRef
 ## 実行ステップ(TDD、CLAUDE.md の開発方針に従う)
 
 1. **スケルトン作成**: 上記ディレクトリ構成、サンプル C++ ソース(corelib.dll / app.exe / SQLite 静的ライブラリ)。SQLite は公式 amalgamation をダウンロード(失敗時は最小スタブで代替し明記)。
-2. **Python 環境**: `.venv` + pytest + spdx-tools(公式検証ツール `pyspdxtools`)。
+2. **Python 環境**: **uv プロジェクト**として管理(`pyproject.toml` + `uv.lock` をコミット)。生成器本体は標準ライブラリのみで無依存。dev 依存として pytest + spdx-tools(公式検証ツール `pyspdxtools`)。セットアップは `uv sync`、実行は `uv run pytest` / `uv run pyspdxtools`。
 3. **テスト先行**: Qt SBOM パース / SPDXID 解決 / ExternalDocumentRef の SHA1 / Package・Relationship 生成 / SPDX 2.3 JSON 組み立て のテストを書く → 失敗を確認 → **コミット**。
 4. **生成器実装**: テストをパスするまで実装 → **コミット**。
 5. **CMake モジュール実装**: `Sbom.cmake` + 各 repo の CMakeLists.txt 統合。
@@ -127,3 +130,14 @@ Relationship: SPDXRef-Package-gui2lib DYNAMIC_LINK DocumentRef-qt5compat:SPDXRef
 - Qt を再インストール/更新すると Qt SBOM の SHA1 が変わる → 生成時に毎回計算(CI でも同様)。
 - 将来 Qt がユーザプロジェクト向け公開 API を出したら乗り換えられるよう、CMake API は薄く保つ。
 - 生成した SBOM の作成日時は生成のたびに変わる(再現性が必要なら `SOURCE_DATE_EPOCH` 対応を後日検討)。
+
+### Codex レビュー (2026-07-04) からの追加指摘の反映
+
+- `ninja sbom` カスタムターゲットは**全成果物ターゲットに `DEPENDS`** を張る(未ビルド/古いバイナリのチェックサムを読むレースを防止)。
+- 受領 SBOM(vendorlib)自体も `pyspdxtools` で検証してから参照する(壊れた受領 SBOM の混入防止)。
+- Windows システム DLL(kernel32 等)・MSVC ランタイム(vcruntime140 等)は SBOM 対象外とする(本実験のスコープ外と明記)。
+- Qt 商用ライセンスの表現は自社 SBOM には書かず、Relation で Qt 側 SBOM に委ねる(自社成果物の licenseDeclared は自社ライセンスまたは NOASSERTION)。
+- IMPORTED ターゲット(vendorlib)の `IMPORTED_LOCATION` は config 非依存で設定する。
+- Jenkins の bat ステップでは `call vcvars64.bat` で環境変数を引き継ぐ。
+- DocumentNamespace はバージョン+ビルド識別子を種に含めて一意性を確保する。
+- Qt の Private モジュール/プラグイン(platforms 等)の扱いは本実験ではスコープ外(リンクしたモジュールのみ対象)。

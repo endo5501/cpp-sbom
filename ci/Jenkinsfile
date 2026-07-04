@@ -1,0 +1,77 @@
+// SBOM 生成を組み込んだ Windows ビルドパイプラインのサンプル
+//
+// 前提 (Windows エージェント):
+//   - Visual Studio 2022 (vcvars64.bat)
+//   - Qt 6.11.1 msvc2022_64 (SBOM 同梱)
+//   - CMake + ninja
+//   - Python 3.11+ と uv (検証ステージで使用。生成自体は素の Python で動く)
+//
+// ポイント:
+//   - bat ステップでは `call` で vcvars64.bat を呼び、環境変数を引き継ぐ
+//   - SBOM_BUILD_ID に Jenkins の BUILD_TAG を渡し、DocumentNamespace の
+//     一意性をビルドごとに確保する
+//   - Qt を更新すると Qt SBOM の SHA1 が変わるが、ExternalDocumentRef の
+//     SHA1 は生成時に毎回実ファイルから計算されるため追従する
+
+pipeline {
+    agent { label 'windows' }
+
+    environment {
+        QT_ROOT = 'C:/Qt/6.11.1/msvc2022_64'
+        CMAKE   = 'C:\\Qt\\Tools\\CMake_64\\bin\\cmake.exe'
+        VCVARS  = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat'
+    }
+
+    stages {
+        stage('Configure') {
+            steps {
+                bat '''
+                    call "%VCVARS%"
+                    "%CMAKE%" -S . -B build -G Ninja ^
+                        -DCMAKE_BUILD_TYPE=Release ^
+                        -DCMAKE_PREFIX_PATH=%QT_ROOT% ^
+                        -DSBOM_BUILD_ID=%BUILD_TAG%
+                '''
+            }
+        }
+
+        stage('Build') {
+            steps {
+                bat '''
+                    call "%VCVARS%"
+                    "%CMAKE%" --build build
+                '''
+            }
+        }
+
+        stage('SBOM') {
+            steps {
+                bat '''
+                    call "%VCVARS%"
+                    "%CMAKE%" --build build --target sbom
+                '''
+            }
+        }
+
+        stage('Validate SBOM') {
+            steps {
+                // 受領 SBOM を含む全ドキュメントの SPDX 2.3 準拠検証 (公式 spdx-tools)
+                bat '''
+                    uv sync --frozen
+                    for %%f in (vendorlib\\sbom\\*.spdx.json build\\sbom\\*.spdx.json) do (
+                        uv run pyspdxtools -i "%%f" || exit /b 1
+                    )
+                '''
+                // 相互参照 (SPDXID / SHA1 / 成果物チェックサム) の整合検証
+                bat 'python scripts\\verify_sbom.py --manifest build\\sbom_manifest.json --sbom-dir build\\sbom'
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: 'build/sbom/*.spdx.json, build/sbom_manifest.json',
+                                 fingerprint: true
+            }
+        }
+    }
+}
