@@ -1,0 +1,16 @@
+[project]
+name = "cpp-sbom-tools"
+version = "0.1.0"
+description = "SBOM generation tooling for the cpp-sbom experiment (generator itself is stdlib-only)"
+requires-python = ">=3.11"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "spdx-tools>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]
