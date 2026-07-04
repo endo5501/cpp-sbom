@@ -28,15 +28,33 @@ define_property(GLOBAL PROPERTY SBOM_TARGETS
     BRIEF_DOCS "Targets registered for SBOM generation")
 define_property(GLOBAL PROPERTY SBOM_PRODUCTS
     BRIEF_DOCS "Product definitions: name|version|root;targets")
+define_property(GLOBAL PROPERTY SBOM_EXTERNALS
+    BRIEF_DOCS "Received-SBOM targets: name|spdx-document-path")
 
 # EXE/DLL を SBOM 対象として登録する。
 # リポジトリ名 = 呼び出し元の PROJECT_NAME、バージョン = PROJECT_VERSION。
+# 受領 SBOM 付きの IMPORTED ターゲット (Vendorlib 等) はディレクトリスコープの
+# ため sbom_finalize からは見えないことがある — ここ (リンク元と同じスコープ)
+# で externals として収集する。
 function(sbom_add_target target)
     set_target_properties(${target} PROPERTIES
         SBOM_REPO    "${PROJECT_NAME}"
         SBOM_VERSION "${PROJECT_VERSION}"
     )
     set_property(GLOBAL APPEND PROPERTY SBOM_TARGETS ${target})
+
+    get_target_property(_links ${target} LINK_LIBRARIES)
+    if(_links)
+        foreach(_link IN LISTS _links)
+            if(TARGET ${_link})
+                get_target_property(_ext_doc ${_link} SBOM_SPDX_DOCUMENT)
+                if(_ext_doc)
+                    set_property(GLOBAL APPEND PROPERTY SBOM_EXTERNALS
+                        "${_link}|${_ext_doc}")
+                endif()
+            endif()
+        endforeach()
+    endif()
 endfunction()
 
 # 静的ライブラリターゲットに OSS メタデータを宣言する。
@@ -143,10 +161,23 @@ function(sbom_finalize)
         return()
     endif()
 
-    # ---- targets / externals -------------------------------------------
-    set(_target_entries "")
+    # ---- externals (sbom_add_target で収集済み) --------------------------
     set(_external_entries "")
     set(_seen_externals "")
+    get_property(_externals GLOBAL PROPERTY SBOM_EXTERNALS)
+    foreach(_external IN LISTS _externals)
+        string(REPLACE "|" ";" _parts "${_external}")
+        list(GET _parts 0 _ext_name)
+        list(GET _parts 1 _ext_doc)
+        if(NOT "${_ext_name}" IN_LIST _seen_externals)
+            list(APPEND _seen_externals "${_ext_name}")
+            string(APPEND _external_entries
+                "    \"${_ext_name}\": { \"spdx_document\": \"${_ext_doc}\" },\n")
+        endif()
+    endforeach()
+
+    # ---- targets ---------------------------------------------------------
+    set(_target_entries "")
     set(_artifact_targets "")
 
     foreach(_tgt IN LISTS _targets)
@@ -159,18 +190,6 @@ function(sbom_finalize)
         if(NOT _links)
             set(_links "")
         endif()
-
-        # 受領 SBOM 付き IMPORTED ターゲットを externals として収集
-        foreach(_link IN LISTS _links)
-            if(TARGET ${_link} AND NOT "${_link}" IN_LIST _seen_externals)
-                get_target_property(_ext_doc ${_link} SBOM_SPDX_DOCUMENT)
-                if(_ext_doc)
-                    list(APPEND _seen_externals "${_link}")
-                    string(APPEND _external_entries
-                        "    \"${_link}\": { \"spdx_document\": \"${_ext_doc}\" },\n")
-                endif()
-            endif()
-        endforeach()
 
         _sbom_json_string_list(_links_json ${_links})
 
