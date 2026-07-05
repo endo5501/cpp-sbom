@@ -55,6 +55,12 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def dumps_spdx(doc: dict) -> str:
+    """SPDX ドキュメントの正規シリアライズ (生成器と再ハッシュツールで共有し、
+    無変更ドキュメントがバイト一致 = 再ハッシュが冪等になるようにする)"""
+    return json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+
+
 class _ReceivedSbom:
     """受領した SPDX 2.3 JSON ドキュメント (vendorlib 等)"""
 
@@ -157,10 +163,7 @@ class _DocBuilder:
         return doc
 
     def write(self, path: Path) -> None:
-        path.write_text(
-            json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        path.write_text(dumps_spdx(self.to_dict()), encoding="utf-8")
 
 
 class _Generator:
