@@ -93,20 +93,38 @@ cmake --build build
 cmake --build build --target sbom      :: 開発時 (未署名バイナリに対して生成)
 ```
 
-### コード署名する場合(出荷ビルド)
+### コード署名する場合(ビルドサーバ / 署名サーバ分離)
 
 Authenticode 署名は PE ファイル末尾に署名情報を追記するため、成果物のハッシュが
 **署名前後で変わる**(実測: app1.exe が 12,288B→13,704B、SHA256 も別値)。SBOM は
-出荷する実成果物を記述すべきなので、**署名後に生成**する。ninja の `sbom` ターゲット
-ではなく生成スクリプトを直接呼び、リビルドで署名が消えるのを防ぐ(マニフェストは
-configure 時に確定済み):
+出荷する実成果物を記述すべきなので、署名後のハッシュに揃える必要がある。
+
+署名は USB トークンの都合で別サーバで行うため、バイナリを往復させず
+**「SBOM を署名サーバへ渡してハッシュだけ更新」**する運用とする(動かすのはテキスト
+ファイルのみで事故が起きにくい)。
 
 ```bat
+:: [ビルドサーバ] Qt/vendor 等との Relation を張った SBOM を生成 (ハッシュは未署名時のもの)
 cmake --build build
-signtool sign /fd SHA256 /f cert.pfx /p *** /tr http://timestamp... /td SHA256 ^
-    build\bin\*.exe build\bin\*.dll
-python scripts\generate_sbom.py --manifest build\sbom_manifest.json --out-dir build\sbom
+cmake --build build --target sbom
+:: → build\bin\ と build\sbom\*.spdx.json を署名サーバへ受け渡す
+
+:: [署名サーバ] 自社成果物にのみ署名 (受領 vendorlib.dll は署名しない)
+signtool sign /fd SHA256 /n "Example Corp" /tr http://timestamp... /td SHA256 ^
+    build\bin\app1.exe build\bin\corelib.dll ...
+:: 署名済みバイナリのハッシュへ更新 (相互参照の SHA1 連鎖も維持)
+python scripts\rehash_sbom.py --sbom-dir build\sbom --artifact-dir build\bin
 ```
+
+`rehash_sbom.py` が必要とする入力は **SBOM 群と署名済みバイナリだけ**。Qt SBOM・
+vendor SBOM・ビルドマニフェストは署名サーバに配布しなくてよい。成果物ハッシュを
+更新すると SBOM ファイル自体の SHA1 が変わるため、それを `ExternalDocumentRef` で
+参照している他ドキュメントの SHA1 も依存順に連鎖更新する。Qt/vendor など署名対象外
+(ローカルにないドキュメント)への参照は変更しない。
+
+> 実測 (自社成果物6つを実署名 → rehash): verify が署名前は6件のハッシュ不一致を検出
+> → rehash で6成果物 + 11件のドキュメント間参照を更新 → verify 0エラー、SPDX 2.3
+> 準拠を維持、Qt 参照 SHA1 は不変。
 
 > 補足: Windows には署名前後で不変な「Authenticode ハッシュ」(証明書テーブル等を
 > 除外して計算)もあるが、これはファイル全体のハッシュではなく `sha256sum` 等での
@@ -117,20 +135,22 @@ python scripts\generate_sbom.py --manifest build\sbom_manifest.json --out-dir bu
 
 ```bash
 uv sync                       # 初回のみ (pytest + spdx-tools)
-uv run pytest                 # 生成器の単体テスト (30件)
+uv run pytest                 # 生成器・再ハッシュの単体テスト
 uv run pyspdxtools -i build/sbom/app1-1.0.0.spdx.json   # SPDX 2.3 準拠検証
 python scripts/verify_sbom.py --manifest build/sbom_manifest.json --sbom-dir build/sbom
                               # 相互参照の SHA1 / SPDXID / 成果物チェックサム整合
 ```
 
-CI は [ci/Jenkinsfile](ci/Jenkinsfile) 参照(configure → build → **sign** → sbom → validate → archive)。
+CI は [ci/Jenkinsfile](ci/Jenkinsfile) 参照(ビルドサーバ: configure → build → sbom → 受け渡し /
+署名サーバ: sign → rehash → validate → archive)。
 
 ## 構成
 
 ```
 cmake/Sbom.cmake         SBOM 収集 CMake モジュール (再利用可能な共通部品)
-scripts/sbomgen/         SPDX 2.3 生成器 (Python 標準ライブラリのみ / CI に依存なし)
-scripts/generate_sbom.py `ninja sbom` から呼ばれる CLI
+scripts/sbomgen/         SPDX 2.3 生成器 + 再ハッシュ (Python 標準ライブラリのみ)
+scripts/generate_sbom.py `ninja sbom` から呼ばれる生成 CLI (ビルドサーバ)
+scripts/rehash_sbom.py   署名後のハッシュ更新 CLI (署名サーバ)
 scripts/verify_sbom.py   相互参照整合性の検証 CLI
 tests/                   pytest (実機 Qt インストールへの統合テスト含む)
 corelib, gui1lib, ...    「別リポジトリ」を模したサンプルプロジェクト群
@@ -142,7 +162,8 @@ vendorlib/               受領バイナリ + 受領 SBOM の模擬
 - Qt の Private モジュール・プラグイン (platforms 等)・MSVC ランタイム・OS DLL は対象外
 - `LINK_LIBRARIES` のジェネレータ式は解決しない(通常のターゲット名リンクのみ)
 - ninja 単一コンフィグ前提(Multi-Config を使う場合はマニフェストの per-config 化が必要)
-- コード署名する場合は署名後に SBOM を生成すること(署名で成果物ハッシュが変わるため。上記「コード署名する場合」参照)
+- コード署名する場合は署名後に SBOM のハッシュを更新すること(`rehash_sbom.py`。上記「コード署名する場合」参照)
+- 再ハッシュはファイル名で署名済みバイナリを照合する(同一ビルド内で成果物ファイル名が一意である前提)
 - SBOM の作成日時は生成のたびに変わる(完全な再現性が必要なら `SOURCE_DATE_EPOCH` 対応を検討)
 - Qt がユーザプロジェクト向け SBOM 公開 API を提供したら移行を検討
   (現状は `_qt_internal_*` の内部 API のみ。本実験の CMake API は薄く保っている)

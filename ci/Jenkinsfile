@@ -1,36 +1,38 @@
-// SBOM 生成を組み込んだ Windows ビルドパイプラインのサンプル
+// SBOM 生成を組み込んだ Windows ビルドパイプラインのサンプル (構成B: ビルド/署名サーバ分離)
 //
-// 前提 (Windows エージェント):
-//   - Visual Studio 2022 (vcvars64.bat)
-//   - Qt 6.11.1 msvc2022_64 (SBOM 同梱)
-//   - CMake + ninja
-//   - Python 3.11+ と uv (検証ステージで使用。生成自体は素の Python で動く)
+// 運用の全体像:
+//   [ビルドサーバ]  build → SBOM 生成 (Qt/vendor 等との Relation を完全に張る)
+//        │          この時点のハッシュは「未署名バイナリ」のもの
+//        │  成果物 (EXE/DLL) + build/sbom/*.spdx.json を受け渡し
+//        ▼
+//   [署名サーバ]    USB トークンで署名 → rehash でハッシュを署名済みへ更新
+//                  (相互参照の SHA1 連鎖も維持される) → 検証 → アーカイブ
 //
-// ポイント:
-//   - bat ステップでは `call` で vcvars64.bat を呼び、環境変数を引き継ぐ
-//   - SBOM_BUILD_ID に Jenkins の BUILD_TAG を渡し、DocumentNamespace の
-//     一意性をビルドごとに確保する
-//   - Qt を更新すると Qt SBOM の SHA1 が変わるが、ExternalDocumentRef の
-//     SHA1 は生成時に毎回実ファイルから計算されるため追従する
-//   - ★重要: SBOM は「署名後」に生成する。Authenticode 署名は PE 末尾に
-//     署名情報を追記しファイルのバイト列を変えるため、成果物のハッシュが
-//     署名前後で変わる。SBOM は出荷する実成果物を記述すべきなので、
-//     Build -> Sign -> SBOM の順とする。SBOM 生成は ninja の 'sbom'
-//     ターゲットではなく生成スクリプト直接呼び出しにして、リビルドで署名が
-//     消える可能性を排除する (マニフェストは configure 時に確定済み)。
+// なぜこの順序か:
+//   Authenticode 署名は PE 末尾に署名情報を追記しファイルのバイト列を変えるため、
+//   成果物のハッシュが署名前後で変わる。SBOM は出荷する実成果物を記述すべきなので、
+//   署名後のハッシュに更新する必要がある。署名は USB トークンの都合で別サーバの
+//   ため、バイナリを往復させるのではなく「SBOM を署名サーバへ渡してハッシュだけ
+//   更新」する (動かすのはテキストファイルのみで事故が起きにくい)。
+//
+// 署名サーバが必要とする入力は build/sbom/*.spdx.json と署名済みバイナリだけ。
+// Qt SBOM・vendor SBOM・ビルドマニフェストは署名サーバに配布しなくてよい。
+//
+// 前提:
+//   - ビルドサーバ: VS2022 (vcvars64) / Qt 6.11.1 msvc2022_64 / CMake+ninja / Python
+//   - 署名サーバ: signtool + USB トークン / Python (rehash は標準ライブラリのみ)
+//   - 検証で使う uv は任意のサーバで可
 
+// ===================================================================
+// 1) ビルドサーバ用パイプライン (Jenkinsfile.build として運用)
+// ===================================================================
 pipeline {
-    agent { label 'windows' }
+    agent { label 'windows-build' }
 
     environment {
-        QT_ROOT  = 'C:/Qt/6.11.1/msvc2022_64'
-        CMAKE    = 'C:\\Qt\\Tools\\CMake_64\\bin\\cmake.exe'
-        VCVARS   = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat'
-        SIGNTOOL = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe'
-        // コード署名証明書 (Jenkins の資格情報から注入する。PFX を使う例)
-        SIGN_PFX = credentials('code-signing-pfx')          // Secret file
-        SIGN_PWD = credentials('code-signing-pfx-password') // Secret text
-        TIMESTAMP_URL = 'http://timestamp.digicert.com'
+        QT_ROOT = 'C:/Qt/6.11.1/msvc2022_64'
+        CMAKE   = 'C:\\Qt\\Tools\\CMake_64\\bin\\cmake.exe'
+        VCVARS  = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat'
     }
 
     stages {
@@ -55,49 +57,94 @@ pipeline {
             }
         }
 
-        stage('Sign') {
+        stage('SBOM (unsigned hashes)') {
             steps {
-                // 出荷成果物 (EXE/DLL) に Authenticode 署名を付与する。
-                // 署名するとファイルのハッシュが変わるため、必ず SBOM 生成より前に実施する。
+                // Qt/vendor 等との Relation を張った SBOM を生成する。
+                // ハッシュはまだ未署名バイナリのもの (署名サーバで更新される)。
                 bat '''
-                    "%SIGNTOOL%" sign /fd SHA256 ^
-                        /f "%SIGN_PFX%" /p "%SIGN_PWD%" ^
-                        /tr "%TIMESTAMP_URL%" /td SHA256 ^
-                        build\\bin\\*.exe build\\bin\\*.dll
-                    "%SIGNTOOL%" verify /pa build\\bin\\*.exe build\\bin\\*.dll
+                    call "%VCVARS%"
+                    "%CMAKE%" --build build --target sbom
                 '''
             }
         }
 
-        stage('SBOM') {
+        stage('Handoff to sign server') {
             steps {
-                // 署名済みバイナリに対して SBOM を生成する。
-                // ninja の 'sbom' ターゲットではなく生成スクリプトを直接呼ぶことで、
-                // リビルドが走って署名が消える可能性を排除する
-                // (sbom_manifest.json は configure 時に確定済み)。
-                bat 'python scripts\\generate_sbom.py --manifest build\\sbom_manifest.json --out-dir build\\sbom'
-            }
-        }
-
-        stage('Validate SBOM') {
-            steps {
-                // 受領 SBOM を含む全ドキュメントの SPDX 2.3 準拠検証 (公式 spdx-tools)
-                bat '''
-                    uv sync --frozen
-                    for %%f in (vendorlib\\sbom\\*.spdx.json build\\sbom\\*.spdx.json) do (
-                        uv run pyspdxtools -i "%%f" || exit /b 1
-                    )
-                '''
-                // 相互参照 (SPDXID / SHA1 / 成果物チェックサム) の整合検証
-                bat 'python scripts\\verify_sbom.py --manifest build\\sbom_manifest.json --sbom-dir build\\sbom'
-            }
-        }
-
-        stage('Archive') {
-            steps {
-                archiveArtifacts artifacts: 'build/sbom/*.spdx.json, build/sbom_manifest.json',
+                // 成果物と SBOM を署名サーバへ受け渡す (stash / artifact / 共有ストレージ等)。
+                // build_id (=BUILD_TAG) を控えておき、署名ビルドと対応付ける。
+                archiveArtifacts artifacts: 'build/bin/**, build/sbom/*.spdx.json',
                                  fingerprint: true
             }
         }
     }
 }
+
+// ===================================================================
+// 2) 署名サーバ用パイプライン (Jenkinsfile.sign として別ジョブで運用)
+// ===================================================================
+// pipeline {
+//     agent { label 'windows-sign-usbtoken' }
+//
+//     environment {
+//         SIGNTOOL      = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe'
+//         // USB トークンの証明書を「発行先の一部」で選択 (/n)。PIN 入力は
+//         // トークン運用に従う (自動化する場合は各社トークンの方式に合わせる)。
+//         SIGN_SUBJECT  = 'Example Corp'
+//         TIMESTAMP_URL = 'http://timestamp.digicert.com'
+//     }
+//
+//     stages {
+//         stage('Fetch build output') {
+//             steps {
+//                 // ビルドサーバから成果物 + build/sbom/*.spdx.json を取得する
+//                 copyArtifacts projectName: 'cpp-sbom-build', selector: upstream()
+//             }
+//         }
+//
+//         stage('Sign') {
+//             steps {
+//                 // 自社成果物 (EXE/DLL) にのみ署名する。
+//                 // 受領バイナリ (vendorlib.dll) は署名しない — 受領 SBOM の
+//                 // ハッシュが変わり整合が壊れるため、対象から除外する。
+//                 bat '''
+//                     for %%f in (app1.exe app2.exe service.exe corelib.dll gui1lib.dll gui2lib.dll) do (
+//                         "%SIGNTOOL%" sign /fd SHA256 /n "%SIGN_SUBJECT%" ^
+//                             /tr "%TIMESTAMP_URL%" /td SHA256 build\\bin\\%%f || exit /b 1
+//                     )
+//                     "%SIGNTOOL%" verify /pa build\\bin\\app1.exe
+//                 '''
+//             }
+//         }
+//
+//         stage('Rehash SBOM') {
+//             steps {
+//                 // 生成済み SBOM のハッシュを署名済みバイナリのものへ更新する。
+//                 // Qt/vendor SBOM もマニフェストも不要 — 入力は SBOM 群と署名済み
+//                 // バイナリだけ。相互参照の SHA1 連鎖も維持される。
+//                 bat 'python scripts\\rehash_sbom.py --sbom-dir build\\sbom --artifact-dir build\\bin'
+//             }
+//         }
+//
+//         stage('Validate SBOM') {
+//             steps {
+//                 // SPDX 2.3 準拠検証 (公式 spdx-tools)
+//                 bat '''
+//                     uv sync --frozen
+//                     for %%f in (build\\sbom\\*.spdx.json) do (
+//                         uv run pyspdxtools -i "%%f" || exit /b 1
+//                     )
+//                 '''
+//                 // 相互参照 + 署名済み成果物チェックサムの整合検証
+//                 // (--manifest はビルドサーバから持ち込めば cross-doc/Qt/vendor も検査可能。
+//                 //  署名サーバに Qt/vendor が無い場合は成果物ハッシュ照合のみでも可)
+//                 bat 'python scripts\\verify_sbom.py --manifest build\\sbom_manifest.json --sbom-dir build\\sbom'
+//             }
+//         }
+//
+//         stage('Archive final SBOM') {
+//             steps {
+//                 archiveArtifacts artifacts: 'build/sbom/*.spdx.json', fingerprint: true
+//             }
+//         }
+//     }
+// }
