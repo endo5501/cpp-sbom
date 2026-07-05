@@ -90,8 +90,28 @@ call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
       -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64 -DSBOM_BUILD_ID=<ビルド識別子>
 cmake --build build
-cmake --build build --target sbom
+cmake --build build --target sbom      :: 開発時 (未署名バイナリに対して生成)
 ```
+
+### コード署名する場合(出荷ビルド)
+
+Authenticode 署名は PE ファイル末尾に署名情報を追記するため、成果物のハッシュが
+**署名前後で変わる**(実測: app1.exe が 12,288B→13,704B、SHA256 も別値)。SBOM は
+出荷する実成果物を記述すべきなので、**署名後に生成**する。ninja の `sbom` ターゲット
+ではなく生成スクリプトを直接呼び、リビルドで署名が消えるのを防ぐ(マニフェストは
+configure 時に確定済み):
+
+```bat
+cmake --build build
+signtool sign /fd SHA256 /f cert.pfx /p *** /tr http://timestamp... /td SHA256 ^
+    build\bin\*.exe build\bin\*.dll
+python scripts\generate_sbom.py --manifest build\sbom_manifest.json --out-dir build\sbom
+```
+
+> 補足: Windows には署名前後で不変な「Authenticode ハッシュ」(証明書テーブル等を
+> 除外して計算)もあるが、これはファイル全体のハッシュではなく `sha256sum` 等での
+> 検証と一致しない。SPDX の標準 checksum フィールドには使わず、署名後の実ファイル
+> ハッシュを記録する方針とする。
 
 ### 検証
 
@@ -103,7 +123,7 @@ python scripts/verify_sbom.py --manifest build/sbom_manifest.json --sbom-dir bui
                               # 相互参照の SHA1 / SPDXID / 成果物チェックサム整合
 ```
 
-CI は [ci/Jenkinsfile](ci/Jenkinsfile) 参照(configure → build → sbom → validate → archive)。
+CI は [ci/Jenkinsfile](ci/Jenkinsfile) 参照(configure → build → **sign** → sbom → validate → archive)。
 
 ## 構成
 
@@ -122,6 +142,7 @@ vendorlib/               受領バイナリ + 受領 SBOM の模擬
 - Qt の Private モジュール・プラグイン (platforms 等)・MSVC ランタイム・OS DLL は対象外
 - `LINK_LIBRARIES` のジェネレータ式は解決しない(通常のターゲット名リンクのみ)
 - ninja 単一コンフィグ前提(Multi-Config を使う場合はマニフェストの per-config 化が必要)
+- コード署名する場合は署名後に SBOM を生成すること(署名で成果物ハッシュが変わるため。上記「コード署名する場合」参照)
 - SBOM の作成日時は生成のたびに変わる(完全な再現性が必要なら `SOURCE_DATE_EPOCH` 対応を検討)
 - Qt がユーザプロジェクト向け SBOM 公開 API を提供したら移行を検討
   (現状は `_qt_internal_*` の内部 API のみ。本実験の CMake API は薄く保っている)

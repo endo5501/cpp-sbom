@@ -12,14 +12,25 @@
 //     一意性をビルドごとに確保する
 //   - Qt を更新すると Qt SBOM の SHA1 が変わるが、ExternalDocumentRef の
 //     SHA1 は生成時に毎回実ファイルから計算されるため追従する
+//   - ★重要: SBOM は「署名後」に生成する。Authenticode 署名は PE 末尾に
+//     署名情報を追記しファイルのバイト列を変えるため、成果物のハッシュが
+//     署名前後で変わる。SBOM は出荷する実成果物を記述すべきなので、
+//     Build -> Sign -> SBOM の順とする。SBOM 生成は ninja の 'sbom'
+//     ターゲットではなく生成スクリプト直接呼び出しにして、リビルドで署名が
+//     消える可能性を排除する (マニフェストは configure 時に確定済み)。
 
 pipeline {
     agent { label 'windows' }
 
     environment {
-        QT_ROOT = 'C:/Qt/6.11.1/msvc2022_64'
-        CMAKE   = 'C:\\Qt\\Tools\\CMake_64\\bin\\cmake.exe'
-        VCVARS  = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat'
+        QT_ROOT  = 'C:/Qt/6.11.1/msvc2022_64'
+        CMAKE    = 'C:\\Qt\\Tools\\CMake_64\\bin\\cmake.exe'
+        VCVARS   = 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat'
+        SIGNTOOL = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\signtool.exe'
+        // コード署名証明書 (Jenkins の資格情報から注入する。PFX を使う例)
+        SIGN_PFX = credentials('code-signing-pfx')          // Secret file
+        SIGN_PWD = credentials('code-signing-pfx-password') // Secret text
+        TIMESTAMP_URL = 'http://timestamp.digicert.com'
     }
 
     stages {
@@ -44,12 +55,27 @@ pipeline {
             }
         }
 
+        stage('Sign') {
+            steps {
+                // 出荷成果物 (EXE/DLL) に Authenticode 署名を付与する。
+                // 署名するとファイルのハッシュが変わるため、必ず SBOM 生成より前に実施する。
+                bat '''
+                    "%SIGNTOOL%" sign /fd SHA256 ^
+                        /f "%SIGN_PFX%" /p "%SIGN_PWD%" ^
+                        /tr "%TIMESTAMP_URL%" /td SHA256 ^
+                        build\\bin\\*.exe build\\bin\\*.dll
+                    "%SIGNTOOL%" verify /pa build\\bin\\*.exe build\\bin\\*.dll
+                '''
+            }
+        }
+
         stage('SBOM') {
             steps {
-                bat '''
-                    call "%VCVARS%"
-                    "%CMAKE%" --build build --target sbom
-                '''
+                // 署名済みバイナリに対して SBOM を生成する。
+                // ninja の 'sbom' ターゲットではなく生成スクリプトを直接呼ぶことで、
+                // リビルドが走って署名が消える可能性を排除する
+                // (sbom_manifest.json は configure 時に確定済み)。
+                bat 'python scripts\\generate_sbom.py --manifest build\\sbom_manifest.json --out-dir build\\sbom'
             }
         }
 
