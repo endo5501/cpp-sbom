@@ -87,7 +87,7 @@ endfunction()
 # STATIC_LINK Relationship が張られる。
 function(sbom_describe_package target)
     cmake_parse_arguments(PARSE_ARGV 1 ARG
-        "" "NAME;VERSION;LICENSE;SUPPLIER;PURL;DOWNLOAD" "")
+        "" "NAME;VERSION;LICENSE;SUPPLIER;PURL;CPE;DOWNLOAD" "")
     if(NOT ARG_NAME)
         message(FATAL_ERROR "sbom_describe_package: NAME is required")
     endif()
@@ -99,6 +99,7 @@ function(sbom_describe_package target)
         SBOM_DESCRIBE_LICENSE  "${ARG_LICENSE}"
         SBOM_DESCRIBE_SUPPLIER "${ARG_SUPPLIER}"
         SBOM_DESCRIBE_PURL     "${ARG_PURL}"
+        SBOM_DESCRIBE_CPE      "${ARG_CPE}"
         SBOM_DESCRIBE_DOWNLOAD "${ARG_DOWNLOAD}"
     )
     set_property(GLOBAL APPEND PROPERTY SBOM_TARGETS ${target})
@@ -249,12 +250,14 @@ function(sbom_finalize)
                 get_target_property(_d_license  ${_tgt} SBOM_DESCRIBE_LICENSE)
                 get_target_property(_d_supplier ${_tgt} SBOM_DESCRIBE_SUPPLIER)
                 get_target_property(_d_purl     ${_tgt} SBOM_DESCRIBE_PURL)
+                get_target_property(_d_cpe      ${_tgt} SBOM_DESCRIBE_CPE)
                 get_target_property(_d_download ${_tgt} SBOM_DESCRIBE_DOWNLOAD)
                 set(_describe ",\n      \"describe\": {\n")
                 string(APPEND _describe "        \"name\": \"${_d_name}\"")
                 foreach(_pair
                         "version|${_d_version}" "license|${_d_license}"
                         "supplier|${_d_supplier}" "purl|${_d_purl}"
+                        "cpe|${_d_cpe}"
                         "download|${_d_download}")
                     string(REPLACE "|" ";" _pair "${_pair}")
                     list(GET _pair 0 _key)

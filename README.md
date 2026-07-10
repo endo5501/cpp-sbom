@@ -61,7 +61,10 @@ if(COMMAND sbom_add_target)   # SBOM 環境なしでも単独ビルド可能
 endif()
 ```
 
-静的リンクされる OSS には `sbom_describe_package(sqlite NAME "SQLite" VERSION "3.53.3" LICENSE "blessing" ...)`、
+静的リンクされる OSS には `sbom_describe_package(sqlite NAME "SQLite" VERSION "3.53.3" LICENSE "blessing" ...)`。
+`PURL` (パッケージ識別子) に加え `CPE` (脆弱性照合用の CPE 2.3、例
+`cpe:2.3:a:sqlite:sqlite:3.53.3:*:*:*:*:*:*:*`) も指定でき、SPDX の
+`externalRefs` (それぞれ `purl` / `cpe23Type`) として埋め込まれる。
 受領バイナリには Config.cmake で `SBOM_SPDX_DOCUMENT` プロパティを設定
 ([vendorlib/cmake/VendorlibConfig.cmake](vendorlib/cmake/VendorlibConfig.cmake) 参照)。
 

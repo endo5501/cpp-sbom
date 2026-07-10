@@ -15,6 +15,7 @@ if(COMMAND sbom_describe_package)
         LICENSE     "blessing"
         SUPPLIER    "Organization: SQLite Consortium"
         PURL        "pkg:generic/sqlite@3.53.3"
+        CPE         "cpe:2.3:a:sqlite:sqlite:3.53.3:*:*:*:*:*:*:*"
         DOWNLOAD    "https://www.sqlite.org/2026/sqlite-amalgamation-3530300.zip"
     )
 endif()

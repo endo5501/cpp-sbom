@@ -266,14 +266,25 @@ class _Generator:
             pkg["versionInfo"] = describe["version"]
         if describe.get("supplier"):
             pkg["supplier"] = describe["supplier"]
+        external_refs = []
         if describe.get("purl"):
-            pkg["externalRefs"] = [
+            external_refs.append(
                 {
                     "referenceCategory": "PACKAGE_MANAGER",
                     "referenceType": "purl",
                     "referenceLocator": describe["purl"],
                 }
-            ]
+            )
+        if describe.get("cpe"):
+            external_refs.append(
+                {
+                    "referenceCategory": "SECURITY",
+                    "referenceType": "cpe23Type",
+                    "referenceLocator": describe["cpe"],
+                }
+            )
+        if external_refs:
+            pkg["externalRefs"] = external_refs
         return pkg
 
     def _artifact_package_dict(self, target: dict) -> dict:
