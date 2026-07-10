@@ -52,6 +52,7 @@ def manifest(tmp_path, qt_sbom_dir, vendor_sbom_file):
                     "license": "blessing",
                     "supplier": "Organization: SQLite Consortium",
                     "purl": "pkg:generic/sqlite@3.53.3",
+                    "cpe": "cpe:2.3:a:sqlite:sqlite:3.53.3:*:*:*:*:*:*:*",
                     "download": "https://www.sqlite.org/2026/sqlite-amalgamation-3530300.zip",
                 },
             },
@@ -279,6 +280,19 @@ class TestStaticLink:
                 if r["referenceType"] == "purl"
             ]
             assert purls == ["pkg:generic/sqlite@3.53.3"]
+
+            cpes = [
+                r
+                for r in pkg.get("externalRefs", [])
+                if r["referenceType"] == "cpe23Type"
+            ]
+            assert cpes == [
+                {
+                    "referenceCategory": "SECURITY",
+                    "referenceType": "cpe23Type",
+                    "referenceLocator": "cpe:2.3:a:sqlite:sqlite:3.53.3:*:*:*:*:*:*:*",
+                }
+            ]
 
             links = relationships_of(doc, "STATIC_LINK")
             assert (artifact, "SPDXRef-Package-SQLite") in links
